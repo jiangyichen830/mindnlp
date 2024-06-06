@@ -502,7 +502,6 @@ class TimeSeriesTransformerModelIntegrationTests(unittest.TestCase):
             ).last_hidden_state
 
         expected_shape = (64, model.config.context_length, model.config.d_model)
-        print("11111111111111111111",output.shape)
         self.assertEqual(output.shape, expected_shape)
 
         expected_slice = mindspore.tensor(
@@ -524,7 +523,7 @@ class TimeSeriesTransformerModelIntegrationTests(unittest.TestCase):
                 static_real_features=batch["static_real_features"],
                 future_time_features=batch["future_time_features"],
             ).encoder_last_hidden_state
-        print("1111111111111111111111",output,output.shape)
+        
         expected_shape = (64, model.config.context_length, model.config.d_model)
         self.assertEqual(output.shape, expected_shape)
 
