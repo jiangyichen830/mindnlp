@@ -201,7 +201,7 @@ class DetaModelTester:
 
         model.freeze_backbone()
 
-        for _, param in model.backbone.model.named_parameters():
+        for _, param in model.backbone.model.trainable_params():
             self.parent.assertEqual(False, param.requires_grad)
 
     def create_and_check_deta_unfreeze_backbone(
@@ -211,7 +211,7 @@ class DetaModelTester:
         model.set_train(False)
         model.unfreeze_backbone()
 
-        for _, param in model.backbone.model.named_parameters():
+        for _, param in model.backbone.model.trainable_params():
             self.parent.assertEqual(True, param.requires_grad)
 
     def create_and_check_deta_object_detection_head_model(
@@ -564,7 +564,7 @@ class DetaModelTest(ModelTesterMixin, GenerationTesterMixin, unittest.TestCase):
                     ]
                     break
 
-            for name, param in model.named_parameters():
+            for name, param in model.trainable_params():
                 if param.requires_grad:
                     if (
                         "level_embed" in name

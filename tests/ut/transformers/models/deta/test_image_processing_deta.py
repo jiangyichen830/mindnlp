@@ -177,7 +177,7 @@ class DetaImageProcessingTest(
         # encode them
         image_processing = DetaImageProcessor()
         encoding = image_processing(
-            images=image, annotations=target, return_tensors="np"
+            images=image, annotations=target, return_tensors="pt"
         )
 
         # verify pixel values
@@ -263,7 +263,7 @@ class DetaImageProcessingTest(
         # encode them
         image_processing = DetaImageProcessor(format="coco_panoptic")
         encoding = image_processing(
-            images=image, annotations=target, masks_path=masks_path, return_tensors="np"
+            images=image, annotations=target, masks_path=masks_path, return_tensors="pt"
         )
 
         # verify pixel values
@@ -652,7 +652,7 @@ class DetaImageProcessingTest(
 
         # do_pad=False, max_height=100, max_width=100, image=200x100 -> 100x50
         image_processor = DetaImageProcessor(
-            size={"max_height": 100, "max_width": 100},
+            size={"height": 100, "width": 100},
             do_pad=False,
         )
         inputs = image_processor(images=[image_1], return_tensors="np")
@@ -660,14 +660,14 @@ class DetaImageProcessingTest(
 
         # do_pad=False, max_height=300, max_width=100, image=200x100 -> 200x100
         image_processor = DetaImageProcessor(
-            size={"max_height": 300, "max_width": 100},
+            size={"height": 300, "width": 100},
             do_pad=False,
         )
         inputs = image_processor(images=[image_1], return_tensors="np")
 
         # do_pad=True, max_height=100, max_width=100, image=200x100 -> 100x100
         image_processor = DetaImageProcessor(
-            size={"max_height": 100, "max_width": 100},
+            size={"height": 100, "width": 100},
             do_pad=True,
             pad_size={"height": 100, "width": 100},
         )
@@ -676,7 +676,7 @@ class DetaImageProcessingTest(
 
         # do_pad=True, max_height=300, max_width=100, image=200x100 -> 300x100
         image_processor = DetaImageProcessor(
-            size={"max_height": 300, "max_width": 100},
+            size={"height": 300, "width": 100},
             do_pad=True,
             pad_size={"height": 301, "width": 101},
         )
@@ -688,7 +688,7 @@ class DetaImageProcessingTest(
 
         # do_pad=True, max_height=150, max_width=100, images=[200x100, 100x150] -> 150x100
         image_processor = DetaImageProcessor(
-            size={"max_height": 150, "max_width": 100},
+            size={"height": 150, "width": 100},
             do_pad=True,
             pad_size={"height": 150, "width": 100},
         )

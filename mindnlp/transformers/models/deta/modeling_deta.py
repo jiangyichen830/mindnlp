@@ -59,34 +59,34 @@ logger = logging.get_logger(__name__)
 MultiScaleDeformableAttention = None
 
 
-def load_cuda_kernels():
-    from torch.utils.cpp_extension import load
+# def load_cuda_kernels():
+#     from torch.utils.cpp_extension import load
 
-    global MultiScaleDeformableAttention
+#     global MultiScaleDeformableAttention
 
-    root = Path(__file__).resolve().parent.parent.parent / "kernels" / "deta"
-    src_files = [
-        root / filename
-        for filename in [
-            "vision.cpp",
-            os.path.join("cpu", "ms_deform_attn_cpu.cpp"),
-            os.path.join("cuda", "ms_deform_attn_cuda.cu"),
-        ]
-    ]
+#     root = Path(__file__).resolve().parent.parent.parent / "kernels" / "deta"
+#     src_files = [
+#         root / filename
+#         for filename in [
+#             "vision.cpp",
+#             os.path.join("cpu", "ms_deform_attn_cpu.cpp"),
+#             os.path.join("cuda", "ms_deform_attn_cuda.cu"),
+#         ]
+#     ]
 
-    load(
-        "MultiScaleDeformableAttention",
-        src_files,
-        with_cuda=True,
-        extra_include_paths=[str(root)],
-        extra_cflags=["-DWITH_CUDA=1"],
-        extra_cuda_cflags=[
-            "-DCUDA_HAS_FP16=1",
-            "-D__CUDA_NO_HALF_OPERATORS__",
-            "-D__CUDA_NO_HALF_CONVERSIONS__",
-            "-D__CUDA_NO_HALF2_OPERATORS__",
-        ],
-    )
+#     load(
+#         "MultiScaleDeformableAttention",
+#         src_files,
+#         with_cuda=True,
+#         extra_include_paths=[str(root)],
+#         extra_cflags=["-DWITH_CUDA=1"],
+#         extra_cuda_cflags=[
+#             "-DCUDA_HAS_FP16=1",
+#             "-D__CUDA_NO_HALF_OPERATORS__",
+#             "-D__CUDA_NO_HALF_CONVERSIONS__",
+#             "-D__CUDA_NO_HALF2_OPERATORS__",
+#         ],
+#     )
 
 
 class MultiScaleDeformableAttentionFunction(nn.Cell):
@@ -357,10 +357,10 @@ class DetaFrozenBatchNorm2d(nn.Cell):
 
     def __init__(self, n):
         super().__init__()
-        self.register_buffer("weight", ops.ones(n))
-        self.register_buffer("bias", ops.zeros(n))
-        self.register_buffer("running_mean", ops.zeros(n))
-        self.register_buffer("running_var", ops.ones(n))
+        self.weight = ops.ones(n)
+        self.bias = ops.zeros(n)
+        self.running_mean = ops.zeros(n)
+        self.running_var = ops.ones(n)
 
     def _load_from_state_dict(
         self,
@@ -407,20 +407,21 @@ def replace_batch_norm(model):
         model (torch.nn.Cell):
             input model
     """
-    for name, module in model.cells_and_names():
-        if isinstance(module, nn.BatchNorm2d):
-            new_module = DetaFrozenBatchNorm2d(module.num_features)
+    for name, cell in model.cells_and_names():
+        if cell is model:
+            continue
+        if isinstance(cell, nn.BatchNorm2d):
+            new_cell = DetaFrozenBatchNorm2d(cell.num_features)
 
-            # if not module.weight.device == torch.device("meta"):
-            #     new_module.weight.data.copy_(module.weight)
-            #     new_module.bias.data.copy_(module.bias)
-            #     new_module.running_mean.data.copy_(module.running_mean)
-            #     new_module.running_var.data.copy_(module.running_var)
+            new_cell.weight.data = cell.weight.copy()
+            new_cell.bias.data = cell.bias.copy()
+            new_cell.running_mean.data = cell.running_mean.copy()
+            new_cell.running_var.data = cell.running_var.copy()
 
-            model._modules[name] = new_module
+            model._cells[name] = new_cell
 
-        if len(list(module.cells())) > 0:
-            replace_batch_norm(module)
+        if len(list(cell.cells())) > 0:
+            replace_batch_norm(cell)
 
 
 class DetaBackboneWithPositionalEncodings(nn.Cell):
@@ -440,7 +441,7 @@ class DetaBackboneWithPositionalEncodings(nn.Cell):
 
         # TODO fix this
         if config.backbone_config.model_type == "resnet":
-            for name, parameter in self.model.named_parameters():
+            for name, parameter in self.model.cells_and_names():
                 if (
                     "stages.1" not in name
                     and "stages.2" not in name
@@ -465,8 +466,8 @@ class DetaBackboneWithPositionalEncodings(nn.Cell):
             # downsample pixel_mask to match shape of corresponding feature_map
             mask = ops.interpolate(
                 pixel_mask[None].float(), size=feature_map.shape[-2:]
-            ).to(ms.bool_)[0]
-            position_embeddings = self.position_embedding(feature_map, mask).to(
+            ).astype(ms.bool_)[0]
+            position_embeddings = self.position_embedding(feature_map, mask).astype(
                 feature_map.dtype
             )
             out.append((feature_map, mask))
@@ -513,10 +514,10 @@ class DetaSinePositionEmbedding(nn.Cell):
         pos_y = y_embed[:, :, :, None] / dim_t
         pos_x = ops.stack(
             (pos_x[:, :, :, 0::2].sin(), pos_x[:, :, :, 1::2].cos()), axis=4
-        ).flatten(3)
+        ).flatten(start_dim=3)
         pos_y = ops.stack(
             (pos_y[:, :, :, 0::2].sin(), pos_y[:, :, :, 1::2].cos()), axis=4
-        ).flatten(3)
+        ).flatten(start_dim=3)
         pos = ops.cat((pos_y, pos_x), axis=3).permute(0, 3, 1, 2)
         return pos
 
@@ -583,7 +584,7 @@ def multi_scale_deformable_attention(
         # -> batch_size*num_heads, hidden_dim, height, width
         value_l_ = (
             value_list[level_id]
-            .flatten(2)
+            .flatten(start_dim=2)
             .swapaxes(1, 2)
             .reshape(batch_size * num_heads, hidden_dim, height, width)
         )
@@ -624,14 +625,13 @@ class DetaMultiscaleDeformableAttention(nn.Cell):
     def __init__(self, config: DetaConfig, num_heads: int, n_points: int):
         super().__init__()
 
-        kernel_loaded = MultiScaleDeformableAttention is not None
-        if is_torch_cuda_available() and is_ninja_available() and not kernel_loaded:
-            try:
-                load_cuda_kernels()
-            except Exception as e:
-                logger.warning(
-                    f"Could not load the custom kernel for multi-scale deformable attention: {e}"
-                )
+        device_target = ms.get_context("device_target")
+        if device_target == "GPU":
+            self.multi_scale_deformable_attention = MultiScaleDeformableAttention(
+                config
+            )
+        else:
+            self.multi_scale_deformable_attention = multi_scale_deformable_attention
 
         if config.d_model % num_heads != 0:
             raise ValueError(
@@ -679,7 +679,7 @@ class DetaMultiscaleDeformableAttention(nn.Cell):
         )
         grid_init = ops.stack([thetas.cos(), thetas.sin()], -1)
         grid_init = (
-            (grid_init / grid_init.abs().max(-1, keepdim=True)[0])
+            (grid_init / grid_init.abs().max(-1, keepdims=True)[0])
             .view(self.n_heads, 1, 1, 2)
             .repeat(1, self.n_levels, self.n_points, 1)
         )
@@ -1207,13 +1207,37 @@ class DetaPreTrainedModel(PreTrainedModel):
         elif isinstance(module, (nn.Dense, nn.Conv2d, nn.BatchNorm2d)):
             # Slightly different from the TF version which uses truncated_normal for initialization
             # cf https://github.com/pytorch/pytorch/pull/5617
-            module.weight.data.normal_(mean=0.0, std=std)
+            module.weight.set_data(
+                initializer(
+                    Normal(mean=0.0, sigma=std),
+                    module.weight.shape,
+                    module.weight.dtype,
+                )
+            )
             if module.bias is not None:
-                module.bias.data.zero_()
+                module.bias.set_data(
+                    initializer(
+                        "zeros",
+                        module.bias.shape,
+                        module.bias.dtype,
+                    )
+                )
         elif isinstance(module, nn.Embedding):
-            module.weight.data.normal_(mean=0.0, std=std)
+            module.weight.set_data(
+                initializer(
+                    Normal(mean=0.0, sigma=std),
+                    module.weight.shape,
+                    module.weight.dtype,
+                )
+            )
             if module.padding_idx is not None:
-                module.weight.data[module.padding_idx].zero_()
+                module.weight[module.padding_idx].set_data(
+                    initializer(
+                        "zeros",
+                        module.weight.shape,
+                        module.weight.dtype,
+                    )
+                )
         if hasattr(module, "reference_points") and not self.config.two_stage:
             module.reference_points.weight.set_data(
                 initializer(
@@ -1653,7 +1677,7 @@ class DetaModel(DetaPreTrainedModel):
         super().__init__(config)
 
         if config.two_stage:
-            requires_backends(self, ["torchvision"])
+            requires_backends(self, ["mindspore"])
 
         # Create backbone with positional encoding
         self.backbone = DetaBackboneWithPositionalEncodings(config)
@@ -1681,6 +1705,7 @@ class DetaModel(DetaPreTrainedModel):
                             config.d_model,
                             kernel_size=3,
                             stride=2,
+                            pad_mode="pad",
                             padding=1,
                             has_bias=True,
                         ),
@@ -1713,7 +1738,7 @@ class DetaModel(DetaPreTrainedModel):
         self.decoder = DetaDecoder(config)
 
         self.level_embed = ms.Parameter(
-            ms.Tensor(config.num_feature_levels, config.d_model)
+            ms.Tensor((config.num_feature_levels, config.d_model))
         )
 
         if config.two_stage:
@@ -1738,11 +1763,11 @@ class DetaModel(DetaPreTrainedModel):
         return self.decoder
 
     def freeze_backbone(self):
-        for name, param in self.backbone.model.named_parameters():
+        for name, param in self.backbone.model.trainable_params():
             param.requires_grad_(False)
 
     def unfreeze_backbone(self):
-        for name, param in self.backbone.model.named_parameters():
+        for name, param in self.backbone.model.trainable_params():
             param.requires_grad_(True)
 
     def get_valid_ratio(self, mask, dtype=ms.float32):
@@ -1774,7 +1799,7 @@ class DetaModel(DetaPreTrainedModel):
         # batch_size, num_queries, 4, 64, 2 -> batch_size, num_queries, 512
         pos = ops.stack(
             (pos[:, :, :, 0::2].sin(), pos[:, :, :, 1::2].cos()), axis=4
-        ).flatten(2)
+        ).flatten(start_dim=2)
         return pos
 
     def gen_encoder_output_proposals(self, enc_output, padding_mask, spatial_shapes):
@@ -1935,12 +1960,12 @@ class DetaModel(DetaPreTrainedModel):
 
         # Prepare encoder inputs (by flattening)
         spatial_shapes = [(source.shape[2:]) for source in sources]
-        source_flatten = [source.flatten(2).swapaxes(1, 2) for source in sources]
-        mask_flatten = [mask.flatten(1) for mask in masks]
+        source_flatten = [source.flatten(start_dim=2).swapaxes(1, 2) for source in sources]
+        mask_flatten = [mask.flatten(start_dim=1) for mask in masks]
 
         lvl_pos_embed_flatten = []
         for level, pos_embed in enumerate(position_embeddings_list):
-            pos_embed = pos_embed.flatten(2).swapaxes(1, 2)
+            pos_embed = pos_embed.flatten(start_dim=2).swapaxes(1, 2)
             lvl_pos_embed = pos_embed + self.level_embed[level].view(1, 1, -1)
             lvl_pos_embed_flatten.append(lvl_pos_embed)
 
@@ -2433,7 +2458,7 @@ def dice_loss(inputs, targets, num_boxes):
                  class).
     """
     inputs = inputs.sigmoid()
-    inputs = inputs.flatten(1)
+    inputs = inputs.flatten(start_dim=1)
     numerator = 2 * (inputs * targets).sum(1)
     denominator = inputs.sum(-1) + targets.sum(-1)
     loss = 1 - (numerator + 1) / (denominator + 1)
@@ -2989,7 +3014,7 @@ class DetaMatcher(object):
 
         # match_quality_matrix is M (gt) x N (predicted)
         # Max over gt elements (dim 0) to find best gt candidate for each prediction
-        matched_vals, matches = match_quality_matrix.max(dim=0)
+        matched_vals, matches = match_quality_matrix.max(axis=0)
 
         match_labels = matches.new_full(matches.shape, 1, dtype=ms.int8)
 
@@ -3011,7 +3036,7 @@ class DetaMatcher(object):
         This function implements the RPN assignment case (i) in Sec. 3.1.2 of :paper:`Faster R-CNN`.
         """
         # For each gt, find the prediction with which it has highest quality
-        highest_quality_foreach_gt, _ = match_quality_matrix.max(dim=1)
+        highest_quality_foreach_gt, _ = match_quality_matrix.max(axis=1)
         # Find the highest quality match available, even if it is low, including ties.
         # Note that the matches qualities must be positive due to the use of
         # `torch.nonzero`.
