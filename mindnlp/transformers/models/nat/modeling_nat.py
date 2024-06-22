@@ -21,7 +21,6 @@ from typing import Optional, Tuple, Union
 import mindspore as ms
 from mindspore import nn, ops
 from mindspore.common.initializer import initializer, Normal
-from natten.functional import natten2dav, natten2dqkrpb
 from ...activations import ACT2FN
 from ...modeling_outputs import BackboneOutput
 from ...modeling_utils import PreTrainedModel
@@ -34,6 +33,24 @@ from ....utils import (
 )
 from ...backbone_utils import BackboneMixin
 from .configuration_nat import NatConfig
+
+# if is_natten_available():
+#     from natten.functional import natten2dav, natten2dqkrpb
+# else:
+
+#     def natten2dqkrpb(*args, **kwargs):
+#         raise OptionalDependencyNotAvailable()
+
+#     def natten2dav(*args, **kwargs):
+#         raise OptionalDependencyNotAvailable()
+
+
+def natten2dqkrpb(*args, **kwargs):
+    raise OptionalDependencyNotAvailable()
+
+
+def natten2dav(*args, **kwargs):
+    raise OptionalDependencyNotAvailable()
 
 
 logger = logging.get_logger(__name__)

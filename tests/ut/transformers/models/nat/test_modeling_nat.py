@@ -277,9 +277,9 @@ class NatModelTest(ModelTesterMixin, unittest.TestCase):
 
         for model_class in self.all_model_classes:
             model = model_class(config)
-            self.assertIsInstance(model.get_input_embeddings(), (nn.Module))
+            self.assertIsInstance(model.get_input_embeddings(), (nn.Cell))
             x = model.get_output_embeddings()
-            self.assertTrue(x is None or isinstance(x, nn.Linear))
+            self.assertTrue(x is None or isinstance(x, nn.Dense))
 
     def test_attention_outputs(self):
         self.skipTest("Nat's attention operation is handled entirely by NATTEN.")
@@ -364,7 +364,8 @@ class NatModelTest(ModelTesterMixin, unittest.TestCase):
         configs_no_init = _config_zero_init(config)
         for model_class in self.all_model_classes:
             model = model_class(config=configs_no_init)
-            for name, param in model.get_parameters():
+            for param in model.get_parameters():
+                name = param.name
                 if "embeddings" not in name and param.requires_grad:
                     self.assertIn(
                         ((param.data.mean() * 1e9).round() / 1e9).item(),
